@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 
-echo "detect start"
 if [ -d $1/stage ]; then
-echo "detect stage"
   echo "scala-compiled"
 else
-echo "detect error"
-  echo "hogehoge" && exit 1
+  echo "no" && exit 1
 fi
