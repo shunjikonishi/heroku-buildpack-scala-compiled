@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # bin/compile <build-dir> <cache-dir> <env-dir>
 
+echo "!!!!!!!!!!!!!!!!!! start !!!!!!!!!!!!!!!!!!"
 # fail fast
 set -e
 
