@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 echo "detect start"
-if [ -d $1/stage]; then
+if [ -d $1/stage ]; then
 echo "detect stage"
   echo "scala-compiled"
 else
