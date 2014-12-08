@@ -11,8 +11,6 @@ OPT_DIR=$BP_DIR/opt
 
 # parse args
 APP_BUILD_DIR=$(cd $1; pwd)
-CACHE_DIR=$2
-ENV_DIR=$3
 
 # Move app to a static build dir to keep paths the same between builds
 BUILD_DIR="/tmp/scala_buildpack_build_dir"
@@ -24,11 +22,6 @@ curl --silent --location $JVM_COMMON_BUILDPACK | tar xzm -C /tmp/jvm-common
 . /tmp/jvm-common/bin/util
 . /tmp/jvm-common/bin/java
 
-export_env_dir $ENV_DIR
-
-#create the cache dir if it doesn't exist
-mkdir -p $CACHE_DIR
-
 # install JDK
 javaVersion=$(detect_java_version ${BUILD_DIR})
 echo -n "-----> Installing OpenJDK ${javaVersion}..."
@@ -36,119 +29,4 @@ install_java ${BUILD_DIR} ${javaVersion}
 jdk_overlay ${BUILD_DIR}
 echo "done"
 
-# home directory from perspective of SBT; we rename
-# it because otherwise the project root and $HOME
-# are the same, and by default .sbt has a (different)
-# meaning in those two places
-SBT_USER_HOME=".sbt_home"
-SBT_USER_HOME_ABSOLUTE="$BUILD_DIR/$SBT_USER_HOME"
-# where we put the SBT binaries
-SBT_BINDIR="$SBT_USER_HOME"/bin
-
-# chdir as sbt expects
-cd $BUILD_DIR
-
-# unpack cache
-CACHED_DIRS="$SBT_USER_HOME/.ivy2 $SBT_USER_HOME/boot $SBT_BINDIR target project/target project/boot"
-for DIR in $CACHED_DIRS; do
-  cache_copy $DIR $CACHE_DIR $BUILD_DIR
-done
-
-# these are preliminary checks. actual version check happens below when attempting to download sbt boot.properties
-if ! test -e project/build.properties; then
-	echo " !      Error, your scala project must include project/build.properties and define sbt.version"
-	echo " !      You must use a release version of sbt, sbt.version=0.11.0 or greater"
-        exit 1
-fi
-
-if ! has_supported_sbt_version ${BUILD_DIR}; then
-	echo " !      Error, you have defined an unsupported sbt.version in project/build.properties"
-	echo " !      You must use a release version of sbt, sbt.version=0.11.0 or greater"
-	exit 1
-fi
-
-SBT_VERSION="$(get_supported_sbt_version ${BUILD_DIR})"
-SBT_JAR="sbt-launch.jar"
-SBT_URL="http://typesafe.artifactoryonline.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.6/$SBT_JAR"
-## in 0.10 start-script will depend on package, if packaging
-## is required - it may not be, we can run .class files or a package-war
-## instead.
-SBT_TASKS="compile stage"
-
-# To enable clean compiles, configure the environment to clean:
-# $ heroku config:set SBT_CLEAN=true
-# $ git push heroku master
-# See: https://devcenter.heroku.com/articles/scala-support#clean-builds
-[ "$SBT_CLEAN" = "true" ] && SBT_TASKS="clean $SBT_TASKS"
-
-if [ ! -d .ivy2/cache ]; then
-   mkdir -p .ivy2/cache
-fi
-
-if [ ! -f "$SBT_BINDIR"/"$SBT_JAR" ]; then
-  mkdir -p "$SBT_BINDIR"
-  cd "$SBT_BINDIR"
-
-  ## clean up any old versions
-  /bin/rm -f sbt sbt-launch-*.jar || true
-
-  echo -n "-----> Downloading SBT..."
-  curl --silent --max-time 60 -O --location $SBT_URL --fail || error "Failed to download $SBT_JAR"
-  echo "done"
-
-  cd $BUILD_DIR
-fi
-
-# Install the custom sbt script for cmds like `heroku run sbt console`
-cp -p $OPT_DIR/sbt-launcher.sh $SBT_BINDIR/sbt
-chmod a+x $SBT_BINDIR/sbt
-
-# copy in heroku sbt plugin
-HEROKU_PLUGIN="HerokuPlugin.scala"
-mkdir -p "$SBT_USER_HOME/.sbt/plugins"
-cp -p $OPT_DIR/$HEROKU_PLUGIN $SBT_USER_HOME/.sbt/plugins/$HEROKU_PLUGIN
-
-# download and cache the dependencies if this is the first build
-if [ ! -d "$SBT_USER_HOME/.ivy2" ]; then
-  if is_sbt_native_packager $BUILD_DIR || is_play $BUILD_DIR; then
-    prime_ivy_cache "$BUILD_DIR" "$SBT_USER_HOME_ABSOLUTE" "$SBT_BINDIR/$SBT_JAR"
-    run_sbt "$SBT_USER_HOME_ABSOLUTE" "$SBT_BINDIR/$SBT_JAR" "update"
-    cache_copy $SBT_USER_HOME/.ivy2 $BUILD_DIR $CACHE_DIR
-  fi
-fi
-
-# build app
-run_sbt "$SBT_USER_HOME_ABSOLUTE" "$SBT_BINDIR/$SBT_JAR" "$SBT_TASKS"
-
-# repack cache
-mkdir -p $CACHE_DIR
-for DIR in $CACHED_DIRS; do
-  cache_copy $DIR $BUILD_DIR $CACHE_DIR
-done
-
-# drop useless directories from slug for play and sbt-native-launcher only
-if is_sbt_native_packager $BUILD_DIR || is_play $BUILD_DIR; then
-  if [ -d $SBT_USER_HOME/.ivy2 ]; then
-    echo "-----> Dropping ivy cache from the slug"
-    rm -rf $SBT_USER_HOME/.ivy2
-  fi
-  if [ -d $SBT_USER_HOME/boot ] ; then
-    echo "-----> Dropping sbt boot dir from the slug"
-    rm -rf $SBT_USER_HOME/boot
-  fi
-  if [ -d $BUILD_DIR/project/boot ] ; then
-    echo "-----> Dropping project boot dir from the slug"
-    rm -rf $BUILD_DIR/project/boot
-  fi
-  if [ -d $BUILD_DIR/target ] ; then
-    echo "-----> Dropping compilation artifacts from the slug"
-    rm -rf $BUILD_DIR/target/scala-*
-    rm -rf $BUILD_DIR/target/streams
-    if [ -d $BUILD_DIR/target/resolution-cache ] ; then
-      find $BUILD_DIR/target/resolution-cache/* ! -name "reports" ! -name "*-compile.xml" -print0 | xargs -0 rm -rf --
-    fi
-  fi
-fi
-
-# Move compiled app back to where Heroku expects it
 mv $BUILD_DIR $APP_BUILD_DIR

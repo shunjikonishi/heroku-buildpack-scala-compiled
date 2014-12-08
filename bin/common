@@ -205,12 +205,12 @@ detect_play_lang() {
 
 uses_universal_packaging() {
   local ctxDir=$1
-  test -d $ctxDir/target/universal/stage/bin
+  test -d $ctxDir/stage/bin
 }
 
 _universal_packaging_procs() {
   local ctxDir=$1
-  (cd $ctxDir; find target/universal/stage/bin -type f -executable)
+  (cd $ctxDir; find stage/bin -type f -executable)
 }
 
 _universal_packaging_proc_count() {
