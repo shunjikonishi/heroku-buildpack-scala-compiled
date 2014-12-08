@@ -6,5 +6,5 @@ echo "detect stage"
   echo "scala-compiled"
 else
 echo "detect error"
-  echo "no" && exit 1
+  echo "hogehoge" && exit 1
 fi
